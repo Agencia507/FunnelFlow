@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, onSnapshot, collection, query, orderBy, addDoc, updateDoc, deleteDoc, getDocs, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, orderBy, addDoc, updateDoc, deleteDoc, getDocs, getDoc, deleteField } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { Funnel, Question, AnswerOption, Diagnosis, LogicRule } from '../types';
@@ -1115,7 +1115,7 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
       : [];
 
   const updateCtas = (nextCtas: { id: string; type: 'custom' | 'whatsapp' | 'purchase' | 'video'; text: string; url: string }[]) => {
-    update({ ctas: nextCtas, cta: undefined });
+    update({ ctas: nextCtas, cta: deleteField() as any });
   };
 
   const addCta = () => {
