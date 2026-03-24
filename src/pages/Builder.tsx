@@ -1449,7 +1449,7 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
           type="button"
           role="switch"
           aria-checked={diagnosis.showConfetti !== false}
-          onClick={() => update({ showConfetti: diagnosis.showConfetti === false ? true : false })}
+          onClick={() => update({ showConfetti: diagnosis.showConfetti !== false ? false : true })}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
             diagnosis.showConfetti !== false ? 'bg-blue-500' : 'bg-slate-200'
           }`}
