@@ -8,6 +8,50 @@ import { ChevronRight, ChevronLeft, CheckCircle2, Layout, ArrowRight, XCircle } 
 import confetti from 'canvas-confetti';
 import { calculateScore, evaluateKo } from '../lib/scoring';
 
+// ─── Meta Pixel helpers ───────────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    fbq?: (...args: any[]) => void;
+    _fbq?: any;
+  }
+}
+
+function initMetaPixel(pixelId: string) {
+  if (window.fbq) return; // Already initialised
+
+  // Standard Meta Pixel base code (minified inline)
+  /* eslint-disable */
+  (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
+    if (f.fbq) return;
+    n = f.fbq = function(...args: any[]) {
+      n.callMethod ? n.callMethod.apply(n, args) : n.queue.push(args);
+    };
+    if (!f._fbq) f._fbq = n;
+    n.push = n;
+    n.loaded = true;
+    n.version = '2.0';
+    n.queue = [];
+    t = b.createElement(e);
+    t.async = true;
+    t.src = v;
+    s = b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t, s);
+  })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+  /* eslint-enable */
+
+  window.fbq!('init', pixelId);
+  window.fbq!('track', 'PageView');
+}
+
+function fireMetaPixelEvent(event: string, params?: Record<string, any>) {
+  if (window.fbq) {
+    window.fbq('track', event, params);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -84,6 +128,11 @@ export function Renderer({ slug }: { slug: string }) {
         updateDoc(doc(db, 'funnels', fData.id), {
           views: (fData.views || 0) + 1
         }).catch(err => console.warn('Failed to increment views:', err));
+
+        // Initialize Meta Pixel if configured
+        if (fData.metaPixelId) {
+          initMetaPixel(fData.metaPixelId);
+        }
 
         // A/B Testing Logic
         if (fData.abTesting?.enabled) {
@@ -289,6 +338,11 @@ export function Renderer({ slug }: { slug: string }) {
         await updateDoc(doc(db, 'funnels', funnel.id), {
           leadsCount: (funnel.leadsCount || 0) + 1
         }).catch(err => console.warn('Failed to increment leadsCount:', err));
+
+        // Fire Meta Pixel Lead event if pixel is configured
+        if (funnel.metaPixelId) {
+          fireMetaPixelEvent('Lead');
+        }
         
         setStep('questions');
       } else {
