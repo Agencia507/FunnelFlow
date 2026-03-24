@@ -81,6 +81,8 @@ export interface Funnel {
   };
   /** Optional advanced scoring configuration. Absent = existing simple-sum behaviour. */
   scoring?: ScoringConfig;
+  /** Meta Pixel ID for tracking Lead events when the lead form is submitted. */
+  metaPixelId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -295,6 +295,17 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                       onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { slug: e.target.value })} 
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Meta Pixel ID</label>
+                    <Input
+                      value={funnel.metaPixelId || ''}
+                      onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { metaPixelId: e.target.value })}
+                      placeholder="Ex: 1234567890"
+                    />
+                    <p className="text-xs text-slate-500">
+                      O evento <strong>Lead</strong> será disparado automaticamente quando o visitante preencher o formulário de dados.
+                    </p>
+                  </div>
                 </Card>
               </section>
 
