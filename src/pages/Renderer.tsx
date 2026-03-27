@@ -17,29 +17,38 @@ declare global {
   }
 }
 
+// Track which pixel IDs have already been initialized so we never double-fire
+// PageView, while still allowing init when window.fbq was set by another script
+// (e.g. the Meta Pixel Helper extension) before our code ran.
+const _initializedPixelIds = new Set<string>();
+
 function initMetaPixel(pixelId: string) {
-  if (window.fbq) return; // Already initialised
+  if (_initializedPixelIds.has(pixelId)) return; // This pixel ID is already set up
+  _initializedPixelIds.add(pixelId);
 
-  // Standard Meta Pixel base code (minified inline)
-  /* eslint-disable */
-  (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
-    if (f.fbq) return;
-    n = f.fbq = function(...args: any[]) {
-      n.callMethod ? n.callMethod.apply(n, args) : n.queue.push(args);
-    };
-    if (!f._fbq) f._fbq = n;
-    n.push = n;
-    n.loaded = true;
-    n.version = '2.0';
-    n.queue = [];
-    t = b.createElement(e);
-    t.async = true;
-    t.src = v;
-    s = b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t, s);
-  })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
-  /* eslint-enable */
+  if (!window.fbq) {
+    // Standard Meta Pixel base code (minified inline) — only load the script once
+    /* eslint-disable */
+    (function(f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
+      n = f.fbq = function(...args: any[]) {
+        n.callMethod ? n.callMethod.apply(n, args) : n.queue.push(args);
+      };
+      if (!f._fbq) f._fbq = n;
+      n.push = n;
+      n.loaded = true;
+      n.version = '2.0';
+      n.queue = [];
+      t = b.createElement(e);
+      t.async = true;
+      t.src = v;
+      s = b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t, s);
+    })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+    /* eslint-enable */
+  }
 
+  // Always initialise this pixel ID and fire PageView even when window.fbq was
+  // already present (e.g. set by the Meta Pixel Helper extension or another pixel).
   window.fbq!('init', pixelId);
   window.fbq!('track', 'PageView');
 }
