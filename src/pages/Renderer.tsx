@@ -18,6 +18,10 @@ declare global {
 }
 
 function initMetaPixel(pixelId: string) {
+  // Trim pixel ID to handle accidental whitespace from copy/paste.
+  const trimmedId = pixelId.trim();
+  if (!trimmedId) return;
+
   // Standard Meta Pixel base code — only inject once (fbq stub sets window.fbq synchronously).
   if (!window.fbq) {
     /* eslint-disable */
@@ -36,12 +40,17 @@ function initMetaPixel(pixelId: string) {
       t.async = true;
       t.src = v;
       s = b.getElementsByTagName(e)[0];
-      s.parentNode.insertBefore(t, s);
+      // Use a safe insertion with fallback to document.head when no script tag exists.
+      if (s?.parentNode) {
+        s.parentNode.insertBefore(t, s);
+      } else {
+        document.head.appendChild(t);
+      }
     })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
     /* eslint-enable */
   }
 
-  window.fbq?.('init', pixelId);
+  window.fbq?.('init', trimmedId);
   window.fbq?.('track', 'PageView');
 }
 
@@ -446,24 +455,27 @@ export function Renderer({ slug }: { slug: string }) {
           leadsCount: (funnel.leadsCount || 0) + 1
         }).catch(err => console.warn('Failed to increment leadsCount:', err));
 
-        // FIX 3: Fire 'lead_capturado' as a custom event (trackCustom) instead of
-        // the standard 'Lead' event. Custom event names are invisible to Meta if sent
-        // via fbq('track', ...) — they must use fbq('trackCustom', ...).
-        // The same event_id is used on both browser and CAPI sides to prevent
-        // duplicate counting in Meta Events Manager (deduplication by event_id).
+        // Fire the standard 'Lead' event so Meta recognises this as a lead conversion
+        // (used by ad campaigns, custom audiences, and the Events Manager by default).
+        // Also fire the custom 'lead_capturado' event for additional granularity.
+        // The same event_id is shared between browser pixel and CAPI on the 'Lead' event
+        // to prevent duplicate counting via server-side deduplication.
         if (funnel.metaPixelId) {
           const leadEventId = crypto.randomUUID();
 
-          // Browser pixel — trackCustom so 'lead_capturado' appears in Events Manager
-          fireMetaPixelEvent('lead_capturado', {}, leadEventId, true);
+          // Standard Lead event — recognized by Meta Ads for optimization and conversion tracking.
+          fireMetaPixelEvent('Lead', {}, leadEventId);
 
-          // CAPI — same event_name and event_id for server-side deduplication.
+          // Custom event for additional granularity (uses a separate ID — different event).
+          fireMetaPixelEvent('lead_capturado', {}, crypto.randomUUID(), true);
+
+          // CAPI — send the standard Lead event with the same event_id for deduplication.
           // Includes hashed name (fn/ln), email (em) and phone (ph) for better match rate.
           if (funnel.metaConversionsApiToken) {
             fireMetaConversionsEvent(
               funnel.metaPixelId,
               funnel.metaConversionsApiToken,
-              'lead_capturado',
+              'Lead',
               { email: leadForm.email, phone: leadForm.phone, name: leadForm.name },
               leadEventId
             );

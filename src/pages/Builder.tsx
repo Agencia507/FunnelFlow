@@ -299,11 +299,11 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
                     <label className="text-sm font-medium">Meta Pixel ID</label>
                     <Input
                       value={funnel.metaPixelId || ''}
-                      onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { metaPixelId: e.target.value })}
+                      onChange={(e) => updateDoc(doc(db, 'funnels', funnelId), { metaPixelId: e.target.value.trim() })}
                       placeholder="Ex: 1234567890"
                     />
                     <p className="text-xs text-slate-500">
-                      Os eventos <strong>Lead</strong> (preenchimento do formulário) e <strong>CompleteRegistration</strong> (conclusão do diagnóstico) serão disparados automaticamente.
+                      Os eventos <strong>Lead</strong> (preenchimento do formulário) e <strong>CompleteRegistration</strong> (conclusão do diagnóstico) serão disparados automaticamente. Um evento personalizado <strong>lead_capturado</strong> também é enviado para rastreamento adicional.
                     </p>
                   </div>
                   <div className="space-y-2">
