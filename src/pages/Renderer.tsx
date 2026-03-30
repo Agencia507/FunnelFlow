@@ -62,17 +62,22 @@ function initMetaPixel(pixelId: string) {
   window.fbq?.('track', 'PageView');
 }
 
-function fireMetaPixelEvent(event: string, params?: Record<string, any>, eventId?: string) {
+// FIX 1: Added `isCustom` parameter.
+// Standard Meta events (PageView, CompleteRegistration) use fbq('track', ...).
+// Custom event names like 'lead_capturado' must use fbq('trackCustom', ...) —
+// Meta ignores unknown names passed to 'track', so they would never appear in Events Manager.
+function fireMetaPixelEvent(event: string, params?: Record<string, any>, eventId?: string, isCustom = false) {
   if (!window.fbq) return;
+  const method = isCustom ? 'trackCustom' : 'track';
   // Always pass an object for params (not undefined) when eventId is provided,
   // because passing explicit undefined as the 3rd arg can cause fbevents.js to
   // silently skip processing the event in some versions.
   if (eventId) {
-    window.fbq('track', event, params || {}, { eventID: eventId });
+    window.fbq(method, event, params || {}, { eventID: eventId });
   } else if (params) {
-    window.fbq('track', event, params);
+    window.fbq(method, event, params);
   } else {
-    window.fbq('track', event);
+    window.fbq(method, event);
   }
 }
 
@@ -86,11 +91,13 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
+// FIX 2: Added `name` to userData so we can hash and send fn/ln in user_data.
+// Meta uses fn (first name) and ln (last name) to improve identity match rate on CAPI.
 async function fireMetaConversionsEvent(
   pixelId: string,
   accessToken: string,
   eventName: string,
-  userData: { email?: string; phone?: string },
+  userData: { email?: string; phone?: string; name?: string },
   eventId?: string,
   eventSourceUrl?: string
 ): Promise<void> {
@@ -99,6 +106,16 @@ async function fireMetaConversionsEvent(
     const hashedPhone = userData.phone
       ? await sha256Hex(userData.phone.replace(/\D/g, ''))
       : undefined;
+
+    // Split full name into first / last and hash each part separately.
+    // Meta expects fn and ln as individual SHA-256 hex strings.
+    let hashedFn: string | undefined;
+    let hashedLn: string | undefined;
+    if (userData.name?.trim()) {
+      const parts = userData.name.trim().split(/\s+/);
+      hashedFn = await sha256Hex(parts[0]);
+      if (parts.length > 1) hashedLn = await sha256Hex(parts.slice(1).join(' '));
+    }
 
     const payload = {
       data: [
@@ -111,6 +128,8 @@ async function fireMetaConversionsEvent(
           user_data: {
             ...(hashedEmail ? { em: hashedEmail } : {}),
             ...(hashedPhone ? { ph: hashedPhone } : {}),
+            ...(hashedFn ? { fn: hashedFn } : {}),
+            ...(hashedLn ? { ln: hashedLn } : {}),
             client_user_agent: navigator.userAgent,
           },
         },
@@ -271,6 +290,21 @@ export function Renderer({ slug }: { slug: string }) {
     return () => clearTimeout(timeoutId);
   }, [funnel?.id]);
 
+  // FIX 4: Re-fire PageView when hash navigation brings the user back to this same
+  // funnel without triggering a full component remount (slug unchanged).
+  // Without this, navigating away via hash and returning would not fire PageView
+  // because the useEffect([slug]) above only runs when slug changes.
+  useEffect(() => {
+    if (!funnel?.metaPixelId) return;
+    const onHashChange = () => {
+      if (window.location.hash === `#/f/${slug}`) {
+        window.fbq?.('track', 'PageView');
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [slug, funnel?.metaPixelId]);
+
   const [disqualified, setDisqualified] = useState(false);
   const [forcedDiagnosisId, setForcedDiagnosisId] = useState<string | null>(null);
 
@@ -429,18 +463,25 @@ export function Renderer({ slug }: { slug: string }) {
           leadsCount: (funnel.leadsCount || 0) + 1
         }).catch(err => console.warn('Failed to increment leadsCount:', err));
 
-        // Fire Meta Pixel Lead event if pixel is configured
+        // FIX 3: Fire 'lead_capturado' as a custom event (trackCustom) instead of
+        // the standard 'Lead' event. Custom event names are invisible to Meta if sent
+        // via fbq('track', ...) — they must use fbq('trackCustom', ...).
+        // The same event_id is used on both browser and CAPI sides to prevent
+        // duplicate counting in Meta Events Manager (deduplication by event_id).
         if (funnel.metaPixelId) {
           const leadEventId = crypto.randomUUID();
-          fireMetaPixelEvent('Lead', undefined, leadEventId);
 
-          // Fire Meta Conversions API Lead event if both Pixel ID and access token are configured
+          // Browser pixel — trackCustom so 'lead_capturado' appears in Events Manager
+          fireMetaPixelEvent('lead_capturado', {}, leadEventId, true);
+
+          // CAPI — same event_name and event_id for server-side deduplication.
+          // Includes hashed name (fn/ln), email (em) and phone (ph) for better match rate.
           if (funnel.metaConversionsApiToken) {
             fireMetaConversionsEvent(
               funnel.metaPixelId,
               funnel.metaConversionsApiToken,
-              'Lead',
-              { email: leadForm.email, phone: leadForm.phone },
+              'lead_capturado',
+              { email: leadForm.email, phone: leadForm.phone, name: leadForm.name },
               leadEventId
             );
           }
