@@ -367,7 +367,7 @@ export function Builder({ funnelId, onBack }: { funnelId: string; onBack: () => 
           </div>
         )}
         {activeTab === 'settings' && (
-          <div className="p-8">
+          <div className="h-full overflow-y-auto p-8">
             <div className="mx-auto max-w-2xl space-y-8">
               <section className="space-y-4">
                 <h2 className="text-xl font-bold">Configurações Gerais</h2>
