@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot, collection, query, orderBy, addDoc, updateDoc, deleteDoc, getDocs, getDoc, deleteField } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { Funnel, Question, AnswerOption, Diagnosis, LogicRule, ScoringConfig, KoRule, KoCondition } from '../types';
 import { Button, Card, Input } from '../components/ui';
+import { RichTextEditor } from '../components/RichTextEditor';
 import { ArrowLeft, Plus, Settings, BarChart2, Users, Save, Trash2, ChevronRight, ChevronDown, Image as ImageIcon, LogOut, Globe, TrendingUp, Layout, GripVertical, Copy, ChevronUp, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -658,6 +659,40 @@ function SortableQuestionBlock({
   );
 }
 
+// Small controlled input that stores its value in local state and only writes
+// to Firestore on blur, preventing cursor-jumping caused by onSnapshot re-renders.
+function OptionInput({
+  optId,
+  initialValue,
+  onSave,
+  className,
+  placeholder,
+}: {
+  optId: string;
+  initialValue: string;
+  onSave: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const [local, setLocal] = useState(initialValue);
+  const prevIdRef = useRef(optId);
+  useEffect(() => {
+    if (optId !== prevIdRef.current) {
+      prevIdRef.current = optId;
+      setLocal(initialValue);
+    }
+  }, [optId, initialValue]);
+  return (
+    <Input
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => onSave(local)}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
+}
+
 function QuestionBlock({ 
   question, 
   index, 
@@ -685,6 +720,18 @@ function QuestionBlock({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [optionToDelete, setOptionToDelete] = useState<string | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<string | null>(null);
+
+  // Local state for plain-text inputs to avoid cursor-jumping caused by
+  // Firestore onSnapshot triggering a re-render on every keystroke.
+  const [localButtonText, setLocalButtonText] = useState(question.buttonText || '');
+  // Sync local plain-text fields when question ID changes (different question loaded)
+  const prevQuestionIdRef = useRef(question.id);
+  useEffect(() => {
+    if (question.id !== prevQuestionIdRef.current) {
+      prevQuestionIdRef.current = question.id;
+      setLocalButtonText(question.buttonText || '');
+    }
+  }, [question.id, question.buttonText]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -762,7 +809,7 @@ function QuestionBlock({
         </div>
         <div className="flex-1 min-w-0">
           <h4 className="font-semibold text-slate-900 truncate">
-            {question.text || "Sem título"}
+            {stripHtml(question.text) || "Sem título"}
           </h4>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
             {question.type === 'single' ? 'Escolha Única' : 
@@ -787,44 +834,39 @@ function QuestionBlock({
             transition={{ duration: 0.2 }}
           >
             <div className="p-6 space-y-6 bg-white">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase text-slate-500">Texto da Pergunta / Mensagem</label>
-                  <Input 
-                    value={question.text} 
-                    onChange={(e) => updateQuestion({ text: e.target.value })} 
-                    placeholder="Ex: Qual o seu faturamento mensal?"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Tipo de Bloco</label>
+                <select 
+                  className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={question.type}
+                  onChange={(e) => updateQuestion({ type: e.target.value as any })}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <option value="single">Escolha Única</option>
+                  <option value="multi">Múltipla Escolha</option>
+                  <option value="scale">Escala (1-5)</option>
+                  <option value="boolean">Sim/Não</option>
+                  <option value="text">Texto Livre</option>
+                  <option value="number">Número</option>
+                  <option value="message">Apenas Mensagem (Sem Resposta)</option>
+                </select>
+              </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase text-slate-500">Tipo de Bloco</label>
-                  <select 
-                    className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={question.type}
-                    onChange={(e) => updateQuestion({ type: e.target.value as any })}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <option value="single">Escolha Única</option>
-                    <option value="multi">Múltipla Escolha</option>
-                    <option value="scale">Escala (1-5)</option>
-                    <option value="boolean">Sim/Não</option>
-                    <option value="text">Texto Livre</option>
-                    <option value="number">Número</option>
-                    <option value="message">Apenas Mensagem (Sem Resposta)</option>
-                  </select>
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Texto da Pergunta / Mensagem</label>
+                <RichTextEditor
+                  value={question.text}
+                  onChange={(html) => updateQuestion({ text: html })}
+                  placeholder="Ex: Qual o seu faturamento mensal?"
+                />
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase text-slate-500">Descrição / Subtexto</label>
-                  <textarea 
-                    value={question.description || ''} 
-                    onChange={(e) => updateQuestion({ description: e.target.value })} 
-                    className="w-full rounded-lg border border-slate-200 p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    rows={2}
+                  <RichTextEditor
+                    value={question.description || ''}
+                    onChange={(html) => updateQuestion({ description: html })}
                     placeholder="Texto auxiliar para o lead..."
                   />
                 </div>
@@ -856,8 +898,9 @@ function QuestionBlock({
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase text-slate-500">Texto do Botão</label>
                   <Input 
-                    value={question.buttonText || ''} 
-                    onChange={(e) => updateQuestion({ buttonText: e.target.value })} 
+                    value={localButtonText}
+                    onChange={(e) => setLocalButtonText(e.target.value)}
+                    onBlur={() => updateQuestion({ buttonText: localButtonText })}
                     placeholder="Ex: Continuar, Entendi, Próximo..."
                   />
                 </div>
@@ -917,9 +960,10 @@ function QuestionBlock({
                       <div key={opt.id} className="group relative rounded-xl border border-slate-100 p-4 bg-slate-50/30 hover:bg-slate-50 transition-colors">
                         <div className="flex items-center gap-3">
                           <div className="flex-1 space-y-2">
-                            <Input 
-                              value={opt.text} 
-                              onChange={(e) => updateOption(opt.id, { text: e.target.value })} 
+                            <OptionInput
+                              optId={opt.id}
+                              initialValue={opt.text}
+                              onSave={(text) => updateOption(opt.id, { text })}
                               className="bg-white"
                               placeholder="Texto da opção"
                             />
@@ -992,7 +1036,7 @@ function QuestionBlock({
                             >
                               <option value="">Selecionar Pergunta</option>
                               {allQuestions.filter(q => q.id !== question.id).map(q => (
-                                <option key={q.id} value={q.id}>{q.text.substring(0, 30)}...</option>
+                                <option key={q.id} value={q.id}>{stripHtml(q.text).substring(0, 30)}...</option>
                               ))}
                             </select>
                           )}
@@ -1097,7 +1141,7 @@ function QuestionBlock({
                             >
                               <option value="">Pergunta...</option>
                               {allQuestions.map(q => (
-                                <option key={q.id} value={q.id}>{q.text.substring(0, 25)}</option>
+                                <option key={q.id} value={q.id}>{stripHtml(q.text).substring(0, 25)}</option>
                               ))}
                             </select>
                             
@@ -1181,7 +1225,7 @@ function QuestionBlock({
                           >
                             <option value="">Selecionar Pergunta</option>
                             {allQuestions.filter(q => q.id !== question.id).map(q => (
-                              <option key={q.id} value={q.id}>{q.text.substring(0, 30)}...</option>
+                              <option key={q.id} value={q.id}>{stripHtml(q.text).substring(0, 30)}...</option>
                             ))}
                           </select>
                         )}
@@ -1489,7 +1533,7 @@ function ScoringConfigPanel({
                       >
                         <option value="">Selecionar pergunta...</option>
                         {questions.map(q => (
-                          <option key={q.id} value={q.id}>{q.text || `Pergunta ${q.order + 1}`}</option>
+                          <option key={q.id} value={q.id}>{stripHtml(q.text) || `Pergunta ${q.order + 1}`}</option>
                         ))}
                       </select>
                     )}
@@ -1589,6 +1633,16 @@ function ScoringConfigPanel({
 
 const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId: string; key?: any }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Local state for the title input to avoid cursor-jumping on Firestore re-renders
+  const [localTitle, setLocalTitle] = useState(diagnosis.title);
+  const prevDiagIdRef = useRef(diagnosis.id);
+  useEffect(() => {
+    if (diagnosis.id !== prevDiagIdRef.current) {
+      prevDiagIdRef.current = diagnosis.id;
+      setLocalTitle(diagnosis.title);
+    }
+  }, [diagnosis.id, diagnosis.title]);
+
   const update = (data: Partial<Diagnosis>) => {
     updateDoc(doc(db, 'funnels', funnelId, 'diagnoses', diagnosis.id), data);
   };
@@ -1648,16 +1702,15 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
         )}
       </div>
       <Input 
-        value={diagnosis.title} 
-        onChange={(e) => update({ title: e.target.value })} 
+        value={localTitle}
+        onChange={(e) => setLocalTitle(e.target.value)}
+        onBlur={() => update({ title: localTitle })}
         placeholder="Título do Diagnóstico"
         className="font-bold"
       />
-      <textarea 
+      <RichTextEditor
         value={diagnosis.description}
-        onChange={(e) => update({ description: e.target.value })}
-        className="w-full rounded-lg border border-slate-200 p-2 text-sm"
-        rows={3}
+        onChange={(html) => update({ description: html })}
         placeholder="Descrição detalhada..."
       />
       <div className="flex items-center gap-4">
@@ -1748,3 +1801,12 @@ const LayoutIcon = ({ className }: { className?: string }) => (
 function cn(...inputs: any[]) {
   return inputs.filter(Boolean).join(' ');
 }
+
+// Strip HTML tags to get a readable plain-text summary.
+// Used when rich text content needs to be displayed in contexts that don't support HTML
+// (e.g. dropdown labels, breadcrumb headers).
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
