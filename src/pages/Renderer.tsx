@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft, CheckCircle2, Layout, ArrowRight, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { calculateScore, evaluateKo } from '../lib/scoring';
+import DOMPurify from 'dompurify';
 
 // ─── Meta Pixel helpers ───────────────────────────────────────────────────────
 
@@ -578,7 +579,8 @@ export function Renderer({ slug }: { slug: string }) {
             const answerId = answers[q.id];
             const option = options[q.id]?.find(o => o.id === answerId);
             if (option) {
-              const key = q.text.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40);
+              const plainText = q.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+              const key = plainText.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40);
               formattedResponses[key] = option.text;
             }
           });
@@ -759,8 +761,16 @@ export function Renderer({ slug }: { slug: string }) {
                     <img src={currentQuestion.imageUrl} alt="" className="w-full object-cover max-h-64" referrerPolicy="no-referrer" />
                   </div>
                 )}
-                <h2 className="text-3xl font-bold leading-tight">{currentQuestion.text}</h2>
-                {currentQuestion.description && <p className="text-lg opacity-70">{currentQuestion.description}</p>}
+                <h2
+                  className="text-3xl font-bold leading-tight"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(currentQuestion.text) }}
+                />
+                {currentQuestion.description && (
+                  <div
+                    className="text-lg opacity-70"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(currentQuestion.description) }}
+                  />
+                )}
                 
                 {currentQuestion.type === 'message' ? (
                   <div className="pt-4 space-y-6">
@@ -952,7 +962,10 @@ export function Renderer({ slug }: { slug: string }) {
               <h1 className="mb-6 text-4xl font-extrabold">{finalDiagnosis.title}</h1>
               
               <Card className="mb-10 p-8 text-left border-2 shadow-xl" style={{ borderColor: 'var(--primary)', backgroundColor: 'rgba(var(--primary), 0.05)' }}>
-                <p className="text-lg leading-relaxed opacity-80 whitespace-pre-wrap">{finalDiagnosis.description}</p>
+                <div
+                  className="prose prose-lg max-w-none leading-relaxed opacity-80"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(finalDiagnosis.description) }}
+                />
               </Card>
 
               {diagnosisCtas.length > 0 && (
