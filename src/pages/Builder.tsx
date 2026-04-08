@@ -2138,7 +2138,6 @@ const DiagnosisCard = ({ diagnosis, funnelId }: { diagnosis: Diagnosis; funnelId
       <Input 
         value={localTitle}
         onChange={(e) => { setLocalTitle(e.target.value); update({ title: e.target.value }); }}
-        onBlur={() => update({ title: localTitle })}
         placeholder="Título do Diagnóstico"
         className="font-bold"
       />

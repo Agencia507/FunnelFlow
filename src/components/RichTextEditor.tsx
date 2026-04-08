@@ -267,7 +267,7 @@ export function RichTextEditor({ value, onChange, placeholder, className, minHei
         )}
         <EditorContent
           editor={editor}
-          className={`prose prose-sm max-w-none px-3 py-2.5 text-sm text-slate-900 focus:outline-none [&_.ProseMirror]:outline-none`}
+          className={`prose prose-sm max-w-none px-3 py-2.5 text-sm text-slate-900 focus:outline-none min-h-[2.5rem] [&_.ProseMirror]:outline-none`}
           style={{ minHeight }}
         />
       </div>
