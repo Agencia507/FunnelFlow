@@ -160,13 +160,15 @@ async function fireMetaConversionsEvent(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CALCULATING_DELAY_MS = 2500;
+
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [options, setOptions] = useState<Record<string, AnswerOption[]>>({});
   const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([]);
   
-  const [step, setStep] = useState<'intro' | 'questions' | 'lead' | 'result'>('intro');
+  const [step, setStep] = useState<'intro' | 'questions' | 'lead' | 'calculating' | 'result'>('intro');
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -714,11 +716,24 @@ export function Renderer({ slug }: { slug: string }) {
 
       // Only advance UI state when the caller hasn't already done so
       if (!isDirectDisqualify) {
-        setStep('result');
-        // Never show confetti for disqualified (KO) results.
-        // For regular results, respect the per-diagnosis showConfetti flag (defaults to true).
-        if (!isDisqualified && diag?.showConfetti !== false) {
-          confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        const redirectUrl = diag?.redirectUrl?.trim();
+        const isSafeRedirect = redirectUrl && /^https?:\/\//i.test(redirectUrl);
+        if (isSafeRedirect) {
+          // Show calculating screen, then redirect after a brief delay
+          setStep('calculating');
+          setTimeout(() => {
+            window.location.href = redirectUrl;
+          }, CALCULATING_DELAY_MS);
+        } else {
+          setStep('calculating');
+          setTimeout(() => {
+            setStep('result');
+            // Never show confetti for disqualified (KO) results.
+            // For regular results, respect the per-diagnosis showConfetti flag (defaults to true).
+            if (!isDisqualified && diag?.showConfetti !== false) {
+              confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+            }
+          }, CALCULATING_DELAY_MS);
         }
       }
     } catch (err: any) {
@@ -1045,6 +1060,21 @@ export function Renderer({ slug }: { slug: string }) {
                   )}
                 </Button>
               </form>
+            </motion.div>
+          )}
+
+          {step === 'calculating' && (
+            <motion.div
+              key="calculating"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center py-20"
+            >
+              <div className="mb-8 inline-flex h-24 w-24 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(var(--primary-rgb, 79,70,229), 0.1)' }}>
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }} />
+              </div>
+              <h1 className="mb-3 text-2xl font-extrabold">Calculando seu resultado…</h1>
+              <p className="text-slate-500 text-sm">Aguarde um momento</p>
             </motion.div>
           )}
 
