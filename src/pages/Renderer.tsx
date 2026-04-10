@@ -160,6 +160,8 @@ async function fireMetaConversionsEvent(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CALCULATING_DELAY_MS = 2500;
+
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -715,12 +717,13 @@ export function Renderer({ slug }: { slug: string }) {
       // Only advance UI state when the caller hasn't already done so
       if (!isDirectDisqualify) {
         const redirectUrl = diag?.redirectUrl?.trim();
-        if (redirectUrl) {
+        const isSafeRedirect = redirectUrl && /^https?:\/\//i.test(redirectUrl);
+        if (isSafeRedirect) {
           // Show calculating screen, then redirect after a brief delay
           setStep('calculating');
           setTimeout(() => {
             window.location.href = redirectUrl;
-          }, 2500);
+          }, CALCULATING_DELAY_MS);
         } else {
           setStep('calculating');
           setTimeout(() => {
@@ -730,7 +733,7 @@ export function Renderer({ slug }: { slug: string }) {
             if (!isDisqualified && diag?.showConfetti !== false) {
               confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
             }
-          }, 2500);
+          }, CALCULATING_DELAY_MS);
         }
       }
     } catch (err: any) {
