@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Funnel, Question, AnswerOption, Diagnosis, Lead, TrackingData, LogicRule, DEFAULT_LEAD_FIELDS, LeadFormField } from '../types';
@@ -161,6 +161,7 @@ async function fireMetaConversionsEvent(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CALCULATING_DELAY_MS = 2500;
+const INCOMPLETE_LEAD_WEBHOOK_DELAY_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export function Renderer({ slug }: { slug: string }) {
   const [funnel, setFunnel] = useState<Funnel | null>(null);
@@ -185,6 +186,18 @@ export function Renderer({ slug }: { slug: string }) {
   const [variant, setVariant] = useState<'A' | 'B'>('A');
 
   const [tracking, setTracking] = useState<TrackingData>({});
+
+  // Timer ref for the delayed lead_captured webhook (fires after 2 hours if lead doesn't complete)
+  const incompleteWebhookTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the incomplete-lead webhook timer on component unmount
+  useEffect(() => {
+    return () => {
+      if (incompleteWebhookTimerRef.current) {
+        clearTimeout(incompleteWebhookTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleFirestoreError = (error: unknown, operationType: string, path: string | null) => {
     const errInfo = {
@@ -561,6 +574,48 @@ export function Renderer({ slug }: { slug: string }) {
           // Answers already collected — finish the funnel now
           await finishFunnel(false, leadRef.id);
         } else {
+          // Schedule the lead_captured webhook to fire after 2 hours if the lead
+          // doesn't complete the funnel.
+          const leadCapturedWebhooks = funnel.integrations?.webhooks?.filter(
+            w => w.enabled && w.events.includes('lead_captured')
+          ) ?? [];
+
+          if (leadCapturedWebhooks.length > 0) {
+            if (incompleteWebhookTimerRef.current) {
+              clearTimeout(incompleteWebhookTimerRef.current);
+            }
+
+            const capturePayload = {
+              metadata: {
+                event: 'lead_captured',
+                source: 'FunnelBuilder Pro',
+                timestamp: new Date().toISOString(),
+              },
+              funnel: {
+                id: funnel.id,
+                name: funnel.name,
+              },
+              lead: {
+                id: leadRef.id,
+                ...knownFieldsData,
+                ...(Object.keys(customFieldsData).length > 0 ? { customFields: customFieldsData } : {}),
+                consent: leadFormValues['consent'],
+              },
+              tracking: { ...tracking },
+            };
+
+            incompleteWebhookTimerRef.current = setTimeout(() => {
+              leadCapturedWebhooks.forEach(webhook => {
+                fetch(webhook.url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': webhook.secret || '' },
+                  body: JSON.stringify({ ...capturePayload, security: { secret: webhook.secret } })
+                }).catch(err => console.error('Webhook failed:', err));
+              });
+              incompleteWebhookTimerRef.current = null;
+            }, INCOMPLETE_LEAD_WEBHOOK_DELAY_MS);
+          }
+
           setStep('questions');
         }
       } else {
@@ -640,7 +695,15 @@ export function Renderer({ slug }: { slug: string }) {
 
       // Trigger Webhooks
       if (funnel?.integrations?.webhooks && funnel.integrations.webhooks.length > 0) {
-        const activeWebhooks = funnel.integrations.webhooks.filter(w => w.enabled);
+        // Cancel the pending incomplete-lead webhook — the lead has now completed
+        if (incompleteWebhookTimerRef.current) {
+          clearTimeout(incompleteWebhookTimerRef.current);
+          incompleteWebhookTimerRef.current = null;
+        }
+
+        const activeWebhooks = funnel.integrations.webhooks.filter(
+          w => w.enabled && w.events.includes('response_submitted')
+        );
 
         if (activeWebhooks.length > 0) {
           // Prepare formatted responses for the webhook
@@ -657,7 +720,7 @@ export function Renderer({ slug }: { slug: string }) {
 
           const payload = {
             metadata: {
-              event: 'lead_completed',
+              event: 'response_submitted',
               source: 'FunnelBuilder Pro',
               timestamp: new Date().toISOString(),
             },
@@ -672,6 +735,7 @@ export function Renderer({ slug }: { slug: string }) {
               ),
               consent: leadFormValues['consent'],
             },
+            tracking: { ...tracking },
             results: {
               score,
               isDisqualified,
