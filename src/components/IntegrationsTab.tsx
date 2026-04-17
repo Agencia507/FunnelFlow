@@ -125,8 +125,17 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
       if (!response.ok) errorMessage = `HTTP ${response.status}`;
       setTestResult({ id: webhook.id, status: 'success', message: 'Enviado com sucesso!' });
     } catch (error) {
-      // CORS errors still typically mean the request reached the server
-      setTestResult({ id: webhook.id, status: 'success', message: 'Enviado (verifique o n8n)' });
+      // fetch throws on network/CORS errors; treat as success for UX (n8n typically
+      // receives the request even when the browser blocks the response due to CORS).
+      // The log will reflect the actual status.
+      if (error instanceof TypeError && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
+        // Likely CORS — request may have reached the server
+        setTestResult({ id: webhook.id, status: 'success', message: 'Enviado (verifique o n8n)' });
+      } else {
+        status = 'error';
+        errorMessage = error instanceof Error ? error.message : String(error);
+        setTestResult({ id: webhook.id, status: 'error', message: 'Erro ao enviar' });
+      }
     }
 
     // Log the test delivery
@@ -144,7 +153,7 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
         createdAt: now,
         lastAttemptAt: now,
       });
-    } catch (_) { /* ignore log errors during test */ }
+    } catch (logErr) { console.error('Failed to write webhook test log:', logErr); }
 
     setTestingId(null);
     setTimeout(() => setTestResult(null), 3000);
@@ -189,21 +198,21 @@ export function IntegrationsTab({ funnelId, webhooks, onUpdate }: IntegrationsTa
         attemptCount: (log.attemptCount || 1) + 1,
         lastAttemptAt: now,
       });
-    } catch (_) { /* ignore */ }
+    } catch (updateErr) { console.error('Failed to update webhook log after reprocess:', updateErr); }
 
     setReprocessingLogId(null);
   };
 
   // Compute per-webhook stats from logs
   const getWebhookStats = (webhookId: string) => {
-    const wLogs = logs.filter(l => l.webhookId === webhookId && l.event !== 'webhook_test');
-    const success = wLogs.filter(l => l.status === 'success').length;
-    const error = wLogs.filter(l => l.status === 'error').length;
-    return { total: wLogs.length, success, error };
+    const webhookLogs = logs.filter(log => log.webhookId === webhookId && log.event !== 'webhook_test');
+    const success = webhookLogs.filter(log => log.status === 'success').length;
+    const error = webhookLogs.filter(log => log.status === 'error').length;
+    return { total: webhookLogs.length, success, error };
   };
 
   const getWebhookLogs = (webhookId: string) =>
-    logs.filter(l => l.webhookId === webhookId).slice(0, 20);
+    logs.filter(log => log.webhookId === webhookId).slice(0, 20);
 
   const eventLabel: Record<string, string> = {
     lead_captured: 'Lead Capturado',
