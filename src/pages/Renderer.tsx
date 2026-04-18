@@ -637,6 +637,7 @@ export function Renderer({ slug }: { slug: string }) {
               metadata: {
                 event: 'lead_captured',
                 source: 'FunnelBuilder Pro',
+                version: '1.0',
                 timestamp: new Date().toISOString(),
               },
               funnel: {
@@ -766,6 +767,7 @@ export function Renderer({ slug }: { slug: string }) {
             metadata: {
               event: 'response_submitted',
               source: 'FunnelBuilder Pro',
+              version: '1.0',
               timestamp: new Date().toISOString(),
             },
             funnel: {
