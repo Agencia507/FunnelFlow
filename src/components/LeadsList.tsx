@@ -8,6 +8,7 @@ import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriang
 import { cn } from '../components/ui';
 
 const FIRESTORE_BATCH_LIMIT = 500;
+const MAX_RESPONSE_KEY_LENGTH = 40;
 
 function getWebhookEventForStatus(status: Lead['status']): 'response_submitted' | 'lead_captured' {
   return status === 'completed' ? 'response_submitted' : 'lead_captured';
@@ -156,6 +157,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
       let diagnosisTitle = 'N/A';
       let diagnosisDescription = '';
       let diagnosisId: string | null = null;
+      let answersJson: string | null = null;
 
       try {
         const qResponse = query(
@@ -171,6 +173,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           responseIsDisqualified = rd.isDisqualified ?? responseIsDisqualified;
           responseDisqualifiedReason = rd.disqualifiedReason ?? responseDisqualifiedReason;
           diagnosisId = rd.diagnosisId || null;
+          answersJson = rd.answersJson || null;
         }
       } catch (err) {
         console.error('Failed to fetch response for webhook resend:', err);
@@ -186,6 +189,36 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           }
         } catch (err) {
           console.error('Failed to fetch diagnosis for webhook resend:', err);
+        }
+      }
+
+      // Reconstruct formatted responses from stored answersJson
+      const formattedResponses: Record<string, string> = {};
+      if (answersJson) {
+        try {
+          const answers: Record<string, string> = JSON.parse(answersJson);
+          const questionsSnap = await getDocs(
+            query(collection(db, 'funnels', funnelId, 'questions'), orderBy('order', 'asc'))
+          );
+          // Only fetch the specific answer option document for each answered question
+          const answeredQuestions = questionsSnap.docs.filter(qDoc => answers[qDoc.id]);
+          const optionSnaps = await Promise.all(
+            answeredQuestions.map(qDoc =>
+              getDoc(doc(db, 'funnels', funnelId, 'questions', qDoc.id, 'options', answers[qDoc.id]))
+            )
+          );
+          answeredQuestions.forEach((qDoc, idx) => {
+            const optSnap = optionSnaps[idx];
+            if (!optSnap.exists()) return;
+            const plainText = ((qDoc.data().text as string) || '')
+              .replace(/<[^>]*>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const key = plainText.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, MAX_RESPONSE_KEY_LENGTH);
+            formattedResponses[key] = (optSnap.data().text as string) || '';
+          });
+        } catch (err) {
+          console.error('Failed to build formatted responses for webhook resend:', err);
         }
       }
 
@@ -210,6 +243,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
             title: diagnosisTitle,
             description: diagnosisDescription,
           },
+          responses: formattedResponses,
         },
       };
     } else {
