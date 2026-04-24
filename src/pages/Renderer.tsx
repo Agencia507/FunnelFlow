@@ -320,6 +320,26 @@ export function Renderer({ slug }: { slug: string }) {
           link.href = fData.branding.faviconUrl;
         }
 
+        // Dynamically load the funnel's custom font if it's not the default (Inter).
+        // Only Inter is loaded by index.html; all other font families are fetched on
+        // demand here to avoid downloading unused font files on every page load.
+        const customFontMap: Record<string, string> = {
+          'font-serif':    'Playfair+Display:ital,wght@0,400;0,700;1,400',
+          'font-display':  'Outfit:wght@400;600;800',
+          'font-mono':     'JetBrains+Mono:wght@400;500',
+          'font-alkatra':  'Alkatra:wght@400;700',
+        };
+        const fontKey = fData.branding?.fontFamily;
+        if (fontKey && customFontMap[fontKey]) {
+          const fontHref = `https://fonts.googleapis.com/css2?family=${customFontMap[fontKey]}&display=swap`;
+          if (!document.querySelector(`link[href="${fontHref}"]`)) {
+            const fontLink = document.createElement('link');
+            fontLink.rel = 'stylesheet';
+            fontLink.href = fontHref;
+            document.head.appendChild(fontLink);
+          }
+        }
+
         // A/B Testing Logic
         if (fData.abTesting?.enabled) {
           const assignedVariant = Math.random() > 0.5 ? 'B' : 'A';
@@ -893,6 +913,8 @@ export function Renderer({ slug }: { slug: string }) {
               alt={funnel.name} 
               className="max-h-16 object-contain"
               referrerPolicy="no-referrer"
+              width={200}
+              height={64}
             />
           </div>
         )}
@@ -918,6 +940,8 @@ export function Renderer({ slug }: { slug: string }) {
                     className="w-full"
                     referrerPolicy="no-referrer"
                     fetchPriority="high"
+                    width={672}
+                    height={378}
                   />
                 </div>
               )}
@@ -992,7 +1016,7 @@ export function Renderer({ slug }: { slug: string }) {
               <div className="space-y-6">
                 {currentQuestion.imageUrl && (
                   <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
-                    <img src={currentQuestion.imageUrl} alt="" className="w-full object-cover max-h-64" referrerPolicy="no-referrer" loading="lazy" />
+                    <img src={currentQuestion.imageUrl} alt="" className="w-full object-cover max-h-64" referrerPolicy="no-referrer" loading="lazy" width={672} height={256} />
                   </div>
                 )}
                 <h2
@@ -1044,7 +1068,7 @@ export function Renderer({ slug }: { slug: string }) {
                       >
                         {opt.imageUrl && (
                           <div className="aspect-video w-full overflow-hidden">
-                            <img src={opt.imageUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                            <img src={opt.imageUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" loading="lazy" width={672} height={378} />
                           </div>
                         )}
                         <div className="flex flex-1 items-center justify-between p-5 text-left">

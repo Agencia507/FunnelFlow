@@ -2,11 +2,12 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { Renderer } from './pages/Renderer';
 import { UserProfile } from './types';
 
-// Lazy-load authenticated-only pages so their heavy dependencies
-// (TipTap, DnD Kit, recharts) are never downloaded by public funnel visitors.
+// Lazy-load all pages so their heavy dependencies are never downloaded until needed.
+// Renderer is lazy so its bundle (framer-motion, canvas-confetti, DOMPurify, etc.)
+// is only fetched when a visitor actually lands on a public funnel route.
+const Renderer = React.lazy(() => import('./pages/Renderer').then(m => ({ default: m.Renderer })));
 const Dashboard = React.lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const Builder = React.lazy(() => import('./pages/Builder').then(m => ({ default: m.Builder })));
 const Login = React.lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
@@ -21,10 +22,20 @@ function PageSpinner() {
 
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<{ type: 'dashboard' | 'builder' | 'renderer'; id?: string }>({ type: 'dashboard' });
+  // For public funnel routes we bypass auth entirely, so start in a non-loading state.
+  const [loading, setLoading] = useState(() => !window.location.hash.startsWith('#/f/'));
+  // Read the initial hash synchronously so public routes render without any delay.
+  const [view, setView] = useState<{ type: 'dashboard' | 'builder' | 'renderer'; id?: string }>(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#/f/')) return { type: 'renderer', id: hash.replace('#/f/', '') };
+    return { type: 'dashboard' };
+  });
 
   useEffect(() => {
+    // Public funnel routes don't require authentication — skip the auth round-trip
+    // so the quiz renders immediately without waiting for Firebase Auth to respond.
+    if (window.location.hash.startsWith('#/f/')) return;
+
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
         // Fetch user profile from Firestore
@@ -34,8 +45,6 @@ export default function App() {
           setUserProfile({ ...userSnap.data() } as UserProfile);
         } else {
           // Profile might still be creating in Login.tsx
-          // We'll let Login.tsx handle the creation and then onAuthStateChanged will trigger again if needed
-          // or we can just wait. For now, we'll set a basic profile if not found yet
           setUserProfile(null);
         }
       } else {
@@ -66,8 +75,13 @@ export default function App() {
     return <PageSpinner />;
   }
 
+  // Public funnel route: render Renderer immediately, bypassing auth entirely.
   if (view.type === 'renderer') {
-    return <Renderer slug={view.id!} />;
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <Renderer slug={view.id!} />
+      </Suspense>
+    );
   }
 
   if (!userProfile) {
