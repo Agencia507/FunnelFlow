@@ -4,11 +4,17 @@ import { db } from '../firebase';
 import { Lead, WebhookConfig } from '../types';
 import { Card, Input } from '../components/ui';
 import { format } from 'date-fns';
-import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Mail, Phone, Building, Download, Filter, X, Search, Trash2, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react';
 import { cn } from '../components/ui';
 
 const FIRESTORE_BATCH_LIMIT = 500;
 const MAX_RESPONSE_KEY_LENGTH = 40;
+const LEADS_TABLE_COLUMNS = 8;
+
+// Firestore document IDs must be non-empty strings without forward slashes.
+function isValidFirestoreId(value: string): boolean {
+  return value.length > 0 && !value.includes('/');
+}
 
 function getWebhookEventForStatus(status: Lead['status']): 'response_submitted' | 'lead_captured' {
   return status === 'completed' ? 'response_submitted' : 'lead_captured';
@@ -36,6 +42,8 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [resendingWebhookLeadId, setResendingWebhookLeadId] = useState<string | null>(null);
   const [resendResult, setResendResult] = useState<{ leadId: string; status: 'success' | 'error' } | null>(null);
+  const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
+  const [leadAnswers, setLeadAnswers] = useState<Record<string, Array<{ question: string; answer: string }> | 'loading' | 'empty'>>({});
 
   useEffect(() => {
     const q = query(
@@ -158,6 +166,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
       let diagnosisDescription = '';
       let diagnosisId: string | null = null;
       let answersJson: string | null = null;
+      let responseCreatedAt: string | null = null;
 
       try {
         const qResponse = query(
@@ -174,6 +183,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           responseDisqualifiedReason = rd.disqualifiedReason ?? responseDisqualifiedReason;
           diagnosisId = rd.diagnosisId || null;
           answersJson = rd.answersJson || null;
+          responseCreatedAt = rd.createdAt || null;
         }
       } catch (err) {
         console.error('Failed to fetch response for webhook resend:', err);
@@ -239,6 +249,7 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
           score: responseScore,
           isDisqualified: responseIsDisqualified,
           disqualifiedReason: responseDisqualifiedReason,
+          ...(responseCreatedAt ? { submittedAt: responseCreatedAt } : {}),
           diagnosis: {
             title: diagnosisTitle,
             description: diagnosisDescription,
@@ -305,6 +316,60 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
     setResendResult({ leadId: lead.id, status: anySuccess ? 'success' : 'error' });
     setResendingWebhookLeadId(null);
     setTimeout(() => setResendResult(null), 3000);
+  };
+
+  const toggleAnswers = async (lead: Lead) => {
+    if (expandedLeadId === lead.id) {
+      setExpandedLeadId(null);
+      return;
+    }
+    setExpandedLeadId(lead.id);
+    if (leadAnswers[lead.id]) return; // already loaded
+
+    setLeadAnswers(prev => ({ ...prev, [lead.id]: 'loading' }));
+    try {
+      const qResponse = query(
+        collection(db, 'responses'),
+        where('leadId', '==', lead.id),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+      const responseSnap = await getDocs(qResponse);
+      if (responseSnap.empty) {
+        setLeadAnswers(prev => ({ ...prev, [lead.id]: 'empty' }));
+        return;
+      }
+      const rd = responseSnap.docs[0].data();
+      const parsedAnswers: Record<string, string> = rd.answersJson ? JSON.parse(rd.answersJson) : {};
+
+      const questionsSnap = await getDocs(
+        query(collection(db, 'funnels', funnelId, 'questions'), orderBy('order', 'asc'))
+      );
+      const answeredDocs = questionsSnap.docs.filter(qDoc => parsedAnswers[qDoc.id]);
+      // Separate questions with a valid option ID (choice questions) from free-text answers.
+      const choiceDocs = answeredDocs.filter(qDoc => isValidFirestoreId(parsedAnswers[qDoc.id]));
+      const optionSnaps = await Promise.all(
+        choiceDocs.map(qDoc =>
+          getDoc(doc(db, 'funnels', funnelId, 'questions', qDoc.id, 'options', parsedAnswers[qDoc.id]))
+        )
+      );
+      const choiceOptionMap = new Map(choiceDocs.map((qDoc, idx) => [qDoc.id, optionSnaps[idx]]));
+      const result: Array<{ question: string; answer: string }> = [];
+      answeredDocs.forEach((qDoc) => {
+        const qData = qDoc.data();
+        const questionText = ((qData.text as string) || '')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const optSnap = choiceOptionMap.get(qDoc.id);
+        const answerText = optSnap?.exists() ? ((optSnap.data().text as string) || '') : parsedAnswers[qDoc.id];
+        result.push({ question: questionText, answer: answerText });
+      });
+      setLeadAnswers(prev => ({ ...prev, [lead.id]: result.length > 0 ? result : 'empty' }));
+    } catch (err) {
+      console.error('Failed to load answers for lead:', err);
+      setLeadAnswers(prev => ({ ...prev, [lead.id]: 'empty' }));
+    }
   };
 
   if (loading) return <div className="p-8 text-center">Carregando leads...</div>;
@@ -451,7 +516,8 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredLeads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-slate-50 transition-colors">
+                <React.Fragment key={lead.id}>
+                <tr className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-medium text-slate-900">{lead.name}</div>
                     <div className="text-xs text-slate-500">{lead.role}</div>
@@ -501,6 +567,23 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
                   </td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {lead.status === 'completed' && (
+                        <button
+                          onClick={() => toggleAnswers(lead)}
+                          title="Ver respostas"
+                          className={cn(
+                            "flex items-center gap-1 rounded p-1.5 transition-colors",
+                            expandedLeadId === lead.id
+                              ? "bg-indigo-50 text-indigo-600"
+                              : "text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                          )}
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          {expandedLeadId === lead.id
+                            ? <ChevronUp className="h-3 w-3" />
+                            : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                      )}
                       {webhooks.some(w => w.enabled && w.events.includes(getWebhookEventForStatus(lead.status))) && (
                         leadToDelete !== lead.id && (
                           resendResult?.leadId === lead.id ? (
@@ -550,6 +633,27 @@ export function LeadsList({ funnelId, webhooks = [], funnelName = '' }: LeadsLis
                     </div>
                   </td>
                 </tr>
+                {expandedLeadId === lead.id && (
+                  <tr className="bg-indigo-50/40">
+                    <td colSpan={LEADS_TABLE_COLUMNS} className="px-6 py-4">
+                      {leadAnswers[lead.id] === 'loading' ? (
+                        <p className="text-xs text-slate-500">Carregando respostas...</p>
+                      ) : leadAnswers[lead.id] === 'empty' || !leadAnswers[lead.id] ? (
+                        <p className="text-xs text-slate-400">Nenhuma resposta registrada.</p>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {(leadAnswers[lead.id] as Array<{ question: string; answer: string }>).map((qa, i) => (
+                            <div key={i} className="rounded-lg border border-indigo-100 bg-white px-3 py-2 shadow-sm">
+                              <p className="text-[11px] font-semibold uppercase text-indigo-400 mb-0.5">{qa.question}</p>
+                              <p className="text-sm text-slate-800">{qa.answer}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

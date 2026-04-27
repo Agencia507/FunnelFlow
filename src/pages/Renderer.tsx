@@ -746,6 +746,7 @@ export function Renderer({ slug }: { slug: string }) {
       }
 
       // Save Response
+      const submittedAt = new Date().toISOString();
       await addDoc(collection(db, 'responses'), {
         funnelId: funnel!.id,
         leadId: effectiveLeadId || 'anonymous',
@@ -755,7 +756,7 @@ export function Renderer({ slug }: { slug: string }) {
         isDisqualified,
         disqualifiedReason,
         ...tracking,
-        createdAt: new Date().toISOString()
+        createdAt: submittedAt
       }).catch(err => handleFirestoreError(err, 'create', 'responses'));
 
       // Trigger Webhooks
@@ -788,7 +789,7 @@ export function Renderer({ slug }: { slug: string }) {
               event: 'response_submitted',
               source: 'FunnelBuilder Pro',
               version: '1.0',
-              timestamp: new Date().toISOString(),
+              timestamp: submittedAt,
             },
             funnel: {
               id: funnel.id,
@@ -806,6 +807,7 @@ export function Renderer({ slug }: { slug: string }) {
               score,
               isDisqualified,
               disqualifiedReason,
+              submittedAt,
               diagnosis: {
                 title: diag?.title || 'N/A',
                 description: diag?.description || ''
